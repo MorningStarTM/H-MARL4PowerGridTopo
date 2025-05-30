@@ -1,53 +1,80 @@
-import grid2op
-import numpy as np
+
 import os
 import time
 import numpy as np
+import grid2op
 from grid2op.Agent import BaseAgent
 from lightsim2grid import LightSimBackend
 from HMARL import config
 from HMARL.Tutor.tutor import RegionalTutor
-env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
 
-region_1 = [0, 1, 2, 3, 4]
+# ------------ Configuration ------------ #
+
+NUM_CHRONICS = 1660
+SAVE_INTERVAL = 10
+SAVE_PATH = "./JuniorStudent/TrainingData"
+os.makedirs(SAVE_PATH, exist_ok=True)
 
 
-if __name__ == '__main__':
-    # hyper-parameters
-    DATA_PATH = env.get_path_env() #'C:\\Users\\Ernest\\data_grid2op\\l2rpn_wcci_2022'  # for demo only, use your own dataset
-    SCENARIO_PATH = env.chronics_handler.path
-    SAVE_PATH = '../JuniorStudent/TrainingData'
-    NUM_CHRONICS = 1660
-    SAVE_INTERVAL = 10
-    os.makedirs(SAVE_PATH, exist_ok=True)
-
+# ------------ Utility Functions ------------ #
+def make_env(data_path, scenario_path):
     try:
-        # if lightsim2grid is available, use it.
-        from lightsim2grid import LightSimBackend
         backend = LightSimBackend()
-        env = grid2op.make(dataset=DATA_PATH, chronics_path=SCENARIO_PATH, backend=backend)
-    except:
-        env = grid2op.make(dataset=DATA_PATH, chronics_path=SCENARIO_PATH)
-    env.chronics_handler.shuffle(shuffler=lambda x: x[np.random.choice(len(x), size=len(x), replace=False)])
+        return grid2op.make(dataset=data_path, chronics_path=scenario_path, backend=backend)
+    except Exception:
+        return grid2op.make(dataset=data_path, chronics_path=scenario_path)
 
-    tutor = RegionalTutor(env.action_space, region_1)
-    # first col for label, remaining 1266 cols for feature (observation.to_vect())
-    records = np.zeros((1, 467 + 1), dtype=np.float32)
-    for num in range(NUM_CHRONICS):
-        env.reset()
-        print('current chronic: %s' % env.chronics_handler.get_name())
-        done, step, obs = False, 0, env.get_obs()
+
+def init_records(obs_space_size):
+    return np.zeros((1, obs_space_size + 1), dtype=np.float32)  # +1 for action label
+
+
+def save_records(records, save_path):
+    timestamp = time.strftime("%m-%d-%H-%M", time.localtime())
+    filepath = os.path.join(save_path, f"records_{timestamp}.npy")
+    np.save(filepath, records)
+    print(f"# Saved records to: {filepath} #")
+
+
+# ------------ Main Generation Loop ------------ #
+def generate_region_dataset(region_ids):
+    # Create env once
+    env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
+    data_path = env.get_path_env()
+    scenario_path = env.chronics_handler.path
+    tutor = RegionalTutor(env.action_space, region_ids)
+    env.close()  # close temp env
+
+    # Re-make with chronics
+    env = make_env(data_path, scenario_path)
+    obs_dim = env.observation_space.size()
+    records = init_records(obs_dim)
+
+    
+    env.chronics_handler.shuffle(shuffler=lambda x: x[np.random.permutation(len(x))])
+
+    for chronic_num in range(NUM_CHRONICS):
+        obs = env.reset()
+        print(f"[{chronic_num+1}/{NUM_CHRONICS}] Chronic: {env.chronics_handler.get_name()}")
+        done = False
+        step = 0
+
         while not done:
             action, idx = tutor.act(obs)
             if idx != -1:
-                # save a record
-                records = np.concatenate((records, np.concatenate(([idx], obs.to_vect())).astype(np.float32)[None, :]), axis=0)
+                row = np.concatenate(([idx], obs.to_vect())).astype(np.float32)[None, :]
+                records = np.concatenate((records, row), axis=0)
+
             obs, _, done, _ = env.step(action)
             step += 1
-        print('game over at step-%d\n\n\n' % step)
 
-        # save current records
-        if (num + 1) % SAVE_INTERVAL == 0:
-            filepath = os.path.join(SAVE_PATH, 'records_%s.npy' % (time.strftime("%m-%d-%H-%M", time.localtime())))
-            np.save(filepath, records)
-            print('# records are saved! #')
+        print(f"    ➤ Game over at step {step}")
+
+        if (chronic_num + 1) % SAVE_INTERVAL == 0:
+            save_records(records, SAVE_PATH)
+            records = init_records(obs_dim)  # reset buffer
+
+    # Final save
+    if records.shape[0] > 1:
+        save_records(records, SAVE_PATH)
+

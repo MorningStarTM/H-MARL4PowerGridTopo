@@ -12,8 +12,9 @@ from HMARL import config
 class RegionalTutor(BaseAgent):
     def __init__(self, action_space, substations):
         BaseAgent.__init__(self, action_space=action_space)
-        self.actions = self.get_sub_actions(substations)
         self.env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
+        self.actions = self.get_sub_actions(substations)
+        
         
 
 
