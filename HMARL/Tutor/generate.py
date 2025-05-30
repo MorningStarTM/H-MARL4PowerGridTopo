@@ -10,7 +10,7 @@ from HMARL.Tutor.tutor import RegionalTutor
 
 # ------------ Configuration ------------ #
 
-NUM_CHRONICS = 1660
+NUM_CHRONICS = 500
 SAVE_INTERVAL = 10
 SAVE_PATH = "./JuniorStudent/TrainingData"
 os.makedirs(SAVE_PATH, exist_ok=True)
