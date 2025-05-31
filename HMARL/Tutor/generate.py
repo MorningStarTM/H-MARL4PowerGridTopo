@@ -5,7 +5,7 @@ import numpy as np
 import grid2op
 from grid2op.Agent import BaseAgent
 from lightsim2grid import LightSimBackend
-from HMARL import config
+from HMARL.config import iconfig
 from HMARL.Tutor.tutor import RegionalTutor
 
 # ------------ Configuration ------------ #
@@ -39,7 +39,7 @@ def save_records(records, save_path):
 # ------------ Main Generation Loop ------------ #
 def generate_region_dataset(region_ids, NUM_CHRONICS = 500):
     # Create env once
-    env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
+    env = grid2op.make(iconfig['ENV_NAME'], backend=LightSimBackend())
     data_path = env.get_path_env()
     scenario_path = env.chronics_handler.path
     tutor = RegionalTutor(env.action_space, region_ids)
@@ -63,6 +63,7 @@ def generate_region_dataset(region_ids, NUM_CHRONICS = 500):
             action, idx = tutor.act(obs)
             if idx != -1:
                 row = np.concatenate(([idx], obs.to_vect())).astype(np.float32)[None, :]
+                
                 records = np.concatenate((records, row), axis=0)
 
             obs, _, done, _ = env.step(action)

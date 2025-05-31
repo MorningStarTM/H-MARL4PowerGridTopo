@@ -6,13 +6,13 @@ import time
 import numpy as np
 from grid2op.Agent import BaseAgent
 from lightsim2grid import LightSimBackend
-from HMARL import config
+from HMARL.config import iconfig
 
 
 class RegionalTutor(BaseAgent):
     def __init__(self, action_space, substations):
         BaseAgent.__init__(self, action_space=action_space)
-        self.env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
+        self.env = grid2op.make(iconfig['ENV_NAME'], backend=LightSimBackend())
         self.actions = self.get_sub_actions(substations)
         
         
