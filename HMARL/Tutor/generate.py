@@ -10,7 +10,7 @@ from HMARL.Tutor.tutor import RegionalTutor
 
 # ------------ Configuration ------------ #
 
-NUM_CHRONICS = 500
+
 SAVE_INTERVAL = 10
 SAVE_PATH = "./JuniorStudent/TrainingData"
 os.makedirs(SAVE_PATH, exist_ok=True)
@@ -37,7 +37,7 @@ def save_records(records, save_path):
 
 
 # ------------ Main Generation Loop ------------ #
-def generate_region_dataset(region_ids):
+def generate_region_dataset(region_ids, NUM_CHRONICS = 500):
     # Create env once
     env = grid2op.make(config.ENV_NAME, backend=LightSimBackend())
     data_path = env.get_path_env()
