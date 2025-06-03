@@ -33,12 +33,12 @@ class RegionNetwork(nn.Module):
     def save(self, path):
         if not os.path.exists(path):
             os.makedirs(path)
-        torch.save(self.state_dict(), os.path.join(path, f'region_network_{self.config['name']}.pth'))
+        torch.save(self.state_dict(), os.path.join(path, f"region_network_{self.config['name']}.pth"))
         logger.info(f"Region Network saved at {path}")
 
     def load(self, path):
-        if os.path.exists(os.path.join(path, f'region_network_{self.config['name']}.pth')):
-            self.load_state_dict(torch.load(os.path.join(path, f'region_network_{self.config['name']}.pth')))
+        if os.path.exists(os.path.join(path, f"region_network_{self.config['name']}.pth")):
+            self.load_state_dict(torch.load(os.path.join(path, f"region_network_{self.config['name']}.pth")))
             logger.info(f"Region Network loaded from {path}")
         else:
             logger.error(f"Region Network model not found at {path}")
