@@ -47,24 +47,24 @@ class ActorCritic(nn.Module):
                         )
         else:
             self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
+                            nn.Linear(state_dim, 512),
                             nn.Tanh(),
-                            nn.Linear(64, 128),
+                            nn.Linear(512, 256),
                             nn.Tanh(),
-                            nn.Linear(128, 128),
+                            nn.Linear(256, 64),
                             nn.Tanh(),
-                            nn.Linear(128, 64),
+                            nn.Linear(64, 64),
                             nn.Tanh(),
                             nn.Linear(64, action_dim),
                             nn.Softmax(dim=-1)
                         )
         # critic
         self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 64),
+                        nn.Linear(state_dim, 512),
                         nn.Tanh(),
-                        nn.Linear(64, 64),
+                        nn.Linear(512, 256),
                         nn.Tanh(),
-                        nn.Linear(128, 128),
+                        nn.Linear(256, 128),
                         nn.Tanh(),
                         nn.Linear(128, 64),
                         nn.Tanh(),
