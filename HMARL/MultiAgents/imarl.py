@@ -7,6 +7,8 @@ import grid2op.Environment as E
 from HMARL.Utils.action_converter import ActionConverter
 from HMARL.Utils.logger import logger
 import torch
+import os
+
 
 AGENT = {
     'ppo': PPO, 
@@ -95,3 +97,18 @@ class IMARL:
 
 
     
+    def save_model(self):
+        for cluster_id, agent in self.agents.items():
+            agent.save(iconfig['model_path'], filename=f"ppo_{cluster_id}.pth")
+        
+        logger.info("Models saved successfully.")
+
+
+    def load_models(self):
+        for cluster_id, agent in self.agents.items():
+            model_path = os.path.join(iconfig['model_path'], f"ppo_{cluster_id}.pth")
+            if os.path.exists(model_path):
+                agent.load(model_path)
+                logger.info(f"Model loaded for cluster {cluster_id} from {model_path}")
+            else:
+                logger.warning(f"Model file not found for cluster {cluster_id} at {model_path}")
