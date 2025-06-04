@@ -8,7 +8,7 @@ from HMARL.Utils.action_converter import ActionConverter
 from HMARL.Utils.logger import logger
 import torch
 import os
-
+import numpy as np
 
 AGENT = {
     'ppo': PPO, 
@@ -22,14 +22,13 @@ MIDDLE_AGENT = {
 
 
 class IMARL:
-    def __init__(self, env:E, action_converter:ActionConverter) -> None:
-        self.ac = action_converter
+    def __init__(self, env:E) -> None:
         logger.info(iconfig['middle_agent_type'])
+        self.env = env
         self.middle_agent = MIDDLE_AGENT[iconfig['middle_agent_type']]
-        self.sub_picker = self.middle_agent(self.ac.subs, action_space=self.ac.action_space)
+        self.sub_picker = self.middle_agent(np.flatnonzero(env.sub_info), action_space=env.action_space)
         self.n_clusters = len(ClusterUtils.cluster_substations(env))
         self.clusters = ClusterUtils.cluster_substations(env)
-        self.action_space = self.ac.action_space
         self.thermal_limit = env._thermal_limit_a
         self.danger = 0.9
 
@@ -45,13 +44,14 @@ class IMARL:
 
     def create_clustered_agents(self):
         agent_type = AGENT[iconfig['agent_type']]
-        agents = [
-            agent_type(iconfig['input_dim'], ClusterUtils.cluster_actions(subs_list, self.action_space), iconfig)
-            for subs_list in self.clusters.values()
-        ]
-        logger.info(f"Number of clusters : {self.n_clusters} --- No of Agent : {len(agents)}")
-        self.agents = dict(zip(self.clusters.keys(), agents))
-        logger.info(f"zipped agents : {self.agents}")
+        self.agents = {}
+        
+        for cluster_id, subs_list in self.clusters.items():
+            agent = agent_type(iconfig['input_dim'], subs_list, self.env, iconfig)
+            self.agents[cluster_id] = agent
+            logger.info(f"Cluster {cluster_id}: Agent created with action size {agent.ac.action_size()}")
+
+        logger.info(f"Number of clusters : {self.n_clusters}")
 
 
     
@@ -74,16 +74,19 @@ class IMARL:
 
     def agent_action(self, obs, is_safe, sample):
         state = obs.to_vect()
-        if not is_safe or (len(self.sub_picker.subs_2_act) > 0):
+        if not is_safe: #or (len(self.sub_picker.subs_2_act) > 0):
             with torch.no_grad():
                 sub2act = self.sub_picker.pick_sub(obs, sample) 
+                logger.info(f"Substation to act: {sub2act}")
                 agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
-                action = self.agents[agent_pos].select_action(state)         
-                grid_action = self.ac.act(action)
+                logger.info(f"Agent position found: {agent_pos}")
+                action, grid_action = self.agents[agent_pos].select_action(state)   
+                logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
+                
                 return action, grid_action
         
-        else:
-            return self.action_space()
+        if is_safe:
+            return -1, self.env.action_space()
         
 
     
