@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 import os
+from HMARL.Utils.action_converter import ActionConverter, MADiscActionConverter
+
 
 class RolloutBuffer:
     def __init__(self):
@@ -123,10 +125,13 @@ class ActorCritic(nn.Module):
 
 #state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6
 class PPO:
-    def __init__(self, state_dim, action_dim, config):
+    def __init__(self, state_dim, sublist, env, config):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = self.config['has_continuous_action_space']
+
+        self.ac = MADiscActionConverter(env, sublist)
+        action_dim = self.ac.action_size()
 
         if self.config['has_continuous_action_space']:
             self.action_std = self.config['action_std_init']
@@ -197,7 +202,9 @@ class PPO:
             self.buffer.logprobs.append(action_logprob)
             self.buffer.state_values.append(state_val)
 
-            return action.item()
+            action = action.item()
+            grid_action = self.ac.act(action)
+            return action, grid_action
 
     def update(self):
         # Monte Carlo estimate of returns
