@@ -60,3 +60,45 @@ class ActionConverter:
         one_hot.scatter_(1, tensor.unsqueeze(1), 1)
         
         return one_hot
+
+
+
+
+
+class MADiscActionConverter:
+    def __init__(self, env, sub_list) -> None:
+        self.action_space = env.action_space
+        self.env = env
+        self.sub_mask = []
+        self.sub_list = sub_list
+        self.init_cluster_action_converter()
+
+    def init_cluster_action_converter(self):
+        """
+        Initialize cluster action converters based on the number of clusters.
+        
+        Parameters:
+        env: The environment object which contains the action space.
+        action_domains (dict): A dictionary where keys are agent names and values are lists of substation IDs.
+        
+        Returns:
+        list: A list of lists, where each inner list contains actions for a specific cluster.
+        """
+        self.cluster_actions = []
+
+        cluster_action_list = []
+        for sub in self.sub_list:
+            sub_actions = self.env.action_space.get_all_unitary_topologies_set(self.env.action_space, sub_id=sub)
+            cluster_action_list.extend(sub_actions)
+        self.cluster_actions.append(cluster_action_list)
+
+
+    def act(self, action:int):
+        return self.cluster_actions[0][action]
+    
+    def action_idx(self, action):
+        return self.cluster_actions[0].index(action)
+    
+    def action_size(self):
+        return len(self.cluster_actions[0])
+    
