@@ -12,6 +12,11 @@ from HMARL.Agents.neural_network import RegionNetwork
 from HMARL.MultiAgents.imarl import IMARL
 from collections import Counter
 from grid2op import Environment
+import grid2op
+from lightsim2grid import LightSimBackend
+from grid2op.Reward import L2RPNSandBoxScore
+from HMARL.Utils.custom_reward import LossReward, MarginReward
+from grid2op.Exceptions import *
 
 
 
@@ -89,19 +94,23 @@ class RegionalTrainer:
 
 
 class MARLTrainer:
-    def __init__(self, imarl:IMARL, env:Environment, config):
+    def __init__(self, imarl:IMARL, config):
         self.imarl = imarl  # instance of IMARL
-        self.env = env
+        self.env = grid2op.make(config['ENV_NAME'],
+                    reward_class=L2RPNSandBoxScore,
+                    backend=LightSimBackend(),
+                    other_rewards={"loss": LossReward, "margin": MarginReward})
+
         self.config = config
 
-        self.log_dir = os.path.join("model_logs", config['env_name'])
-        self.model_dir = os.path.join("Models", config['env_name'])
-        self.reward_dir = os.path.join("rewards", config['env_name'])
+        self.log_dir = os.path.join("model_logs", config['ENV_NAME'])
+        self.model_dir = os.path.join("Models", config['ENV_NAME'])
+        self.reward_dir = os.path.join("rewards", config['ENV_NAME'])
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.model_dir, exist_ok=True)
         os.makedirs(self.reward_dir, exist_ok=True)
 
-        self.episode_rewards = {cid: [] for cid in imarl.agents.keys()}
+        self.episode_rewards = []
         self.step_rewards = {cid: [] for cid in imarl.agents.keys()}
         self.step_counter = {cid: 0 for cid in imarl.agents.keys()}
 
@@ -113,42 +122,72 @@ class MARLTrainer:
             obs = self.env.reset()
             done = False
             episode_reward = {cid: 0.0 for cid in self.imarl.agents.keys()}
+            episode_reward_tot = 0
+
 
             for step in tqdm(range(self.env.max_episode_duration()), desc=f"Episode {episode}"):
-                is_safe = self.imarl.is_safe(obs)
-                action_idx, grid_action = self.imarl.agent_action(obs, is_safe, sample=True)
-                obs_, reward, done, _ = self.env.step(grid_action)
+                try:
+                    is_safe = self.imarl.is_safe(obs)
+                    action_idx, grid_action = self.imarl.agent_action(obs, is_safe, sample=True)
+                    obs_, reward, done, _ = self.env.step(grid_action)
+                    episode_reward_tot += reward
 
-                sub = self.imarl.sub_picker.prev_sub
-                cid = self.imarl.sub_to_cluster[sub]
+                    sub = self.imarl.sub_picker.prev_sub
+                    cid = self.imarl.sub_to_cluster[sub]
 
-                self.imarl.agents[cid].buffer.rewards.append(reward)
-                self.imarl.agents[cid].buffer.is_terminals.append(done)
+                    self.imarl.agents[cid].buffer.rewards.append(reward)
+                    self.imarl.agents[cid].buffer.is_terminals.append(done)
 
-                self.episode_rewards[cid].append(reward)
-                self.step_rewards[cid].append(reward)
-                self.step_counter[cid] += 1
+                    #self.episode_rewards[cid].append(reward)
+                    self.step_rewards[cid].append(reward)
+                    self.step_counter[cid] += 1
 
-                obs = obs_
+                    obs = obs_
 
-                # Train when buffer is large enough
-                if self.step_counter[cid] >= self.config['update_timestep']:
-                    logger.info(f"Training agent {cid} at step {step}...")
-                    self.imarl.agents[cid].update()
-                    self.step_counter[cid] = 0
+                    if done:
+                        self.env.set_id(episode)
+                        
+                        obs = self.env.reset()
+                        done = False
+                        reward = self.env.reward_range[0]
 
-                if done:
-                    break
+                        self.env.fast_forward_chronics(step - 1)
+                        is_safe = self.imarl.is_safe(obs)
+                        action_idx, grid_action = self.imarl.agent_action(obs, is_safe, sample=True)
+                        obs_, reward, done, _ = self.env.step(grid_action)
+                        self.imarl.agents[cid].buffer.rewards.append(reward)
+
+                    # Train when buffer is large enough
+                    if self.step_counter[cid] >= self.config['update_timestep']:
+                        logger.info(f"Training agent {cid} at step {step}...")
+                        self.imarl.agents[cid].update()
+                        self.step_counter[cid] = 0
+
+
+                except NoForecastAvailable as e:
+                    logger.error(f"Grid2OpException encountered at step {step} in episode {episode}: {e}")
+                    self.env.set_id(episode)
+                    obs = self.env.reset()
+                    self.env.fast_forward_chronics(step-1)
+                    continue
+
+                except Grid2OpException as e:
+                    logger.error(f"Grid2OpException encountered at step {step} in episode {episode}: {e}")
+                    self.env.set_id(episode)
+                    obs = self.env.reset()
+                    self.env.fast_forward_chronics(step-1)
+                    continue 
 
             if (episode + 1) % self.config['save_model_freq'] == 0:
                 self.imarl.save_model()
-
+        
+            self.episode_rewards.append(episode_reward_tot)
         self.save_rewards()
         logger.info("Training completed")
         logger.info(f"Total training time: {datetime.now().replace(microsecond=0) - start_time}")
 
     def save_rewards(self):
-        for cid in self.imarl.agents:
-            np.save(os.path.join(self.reward_dir, f"ppo_cluster{cid}_episode_rewards.npy"), np.array(self.episode_rewards[cid]))
+        np.save(os.path.join(self.reward_dir, f"ippo_cluster_episode_rewards.npy"), np.array(self.episode_rewards))
+        for cid in self.imarl.agents:    
             np.save(os.path.join(self.reward_dir, f"ppo_cluster{cid}_step_rewards.npy"), np.array(self.step_rewards[cid]))
         logger.info("Saved reward logs for all agents.")
