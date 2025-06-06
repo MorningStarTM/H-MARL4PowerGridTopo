@@ -77,11 +77,11 @@ class IMARL:
         if not is_safe: #or (len(self.sub_picker.subs_2_act) > 0):
             with torch.no_grad():
                 sub2act = self.sub_picker.pick_sub(obs, sample) 
-                logger.info(f"Substation to act: {sub2act}")
+                logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
                 agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
-                logger.info(f"Agent position found: {agent_pos}")
+                #logger.info(f"Agent position found: {agent_pos}")
                 action, grid_action = self.agents[agent_pos].select_action(state)   
-                logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
+                #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
                 
                 return action, grid_action
         
