@@ -17,6 +17,7 @@ class FixedSubPicker(object):
         self.count = np.zeros((n_subs, n_subs), int) # NumPy zero-filled matrix of size n_subs x n_subs (number of substations by number of substations). 
         #It's potentially used for tracking the frequency of transitions between substation selections
         self.previous_sub = -1 #  index indicating the last substation that was selected, initially set to -1 (indicating no prior selection).
+        self.prev_sub = None
 
     def complete_reset(self):
         """_summary_
@@ -43,6 +44,7 @@ class FixedSubPicker(object):
         if sample:
             self.count_transitions(sub_2_act) # updates the transition count matrix to reflect the transition from the previous substation to the newly selected substation.
             self.previous_sub = sub_2_act # keeping track of the last substation that was selected.
+            self.prev_sub = sub_2_act
         return sub_2_act # returns sub_2_act, the substation to be acted upon next.
 
 
@@ -137,4 +139,5 @@ class RuleBasedSubPicker(FixedSubPicker):
         if sample:
             self.count_transitions(sub_2_act)
             self.previous_sub = sub_2_act
+        self.prev_sub = sub_2_act
         return sub_2_act
