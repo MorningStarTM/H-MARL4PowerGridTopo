@@ -104,7 +104,7 @@ class MARLTrainer:
         self.config = config
 
         self.log_dir = os.path.join("model_logs", config['ENV_NAME'])
-        self.model_dir = os.path.join("Models", config['ENV_NAME'])
+        self.model_dir = os.path.join("models", config['ENV_NAME'])
         self.reward_dir = os.path.join("rewards", config['ENV_NAME'])
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.model_dir, exist_ok=True)
