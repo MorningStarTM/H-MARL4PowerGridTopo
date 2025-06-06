@@ -94,12 +94,9 @@ class RegionalTrainer:
 
 
 class MARLTrainer:
-    def __init__(self, imarl:IMARL, config):
+    def __init__(self, imarl:IMARL, env, config):
         self.imarl = imarl  # instance of IMARL
-        self.env = grid2op.make(config['ENV_NAME'],
-                    reward_class=L2RPNSandBoxScore,
-                    backend=LightSimBackend(),
-                    other_rewards={"loss": LossReward, "margin": MarginReward})
+        self.env = env
 
         self.config = config
 
@@ -158,10 +155,12 @@ class MARLTrainer:
                         self.imarl.agents[cid].buffer.rewards.append(reward)
 
                     # Train when buffer is large enough
-                    if self.step_counter[cid] >= self.config['update_timestep']:
-                        logger.info(f"Training agent {cid} at step {step}...")
-                        self.imarl.agents[cid].update()
-                        self.step_counter[cid] = 0
+                    if all(len(agent.buffer) >= self.config['update_timestep'] for agent in self.imarl.agents.values()):
+                        logger.info(f"All buffers full. Updating all agents at step {step}")
+                        for cid, agent in self.imarl.agents.items():
+                            logger.info(f"Updating agent {cid} with buffer size {len(agent.buffer)}")
+                            agent.update()
+                            self.step_counter[cid] = 0
 
 
                 except NoForecastAvailable as e:
