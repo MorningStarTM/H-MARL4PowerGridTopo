@@ -100,6 +100,9 @@ class IMARL:
 
     
     def save_model(self):
+        if not os.path.exists(iconfig['model_path']):
+            os.makedirs(iconfig['model_path'])
+            logger.info(f"Model path created: {iconfig['model_path']}")
         for cluster_id, agent in self.agents.items():
             agent.save(iconfig['model_path'], filename=f"ppo_{cluster_id}.pth")
         
