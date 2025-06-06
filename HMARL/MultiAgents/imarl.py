@@ -72,21 +72,20 @@ class IMARL:
         return None
     
 
-    def agent_action(self, obs, is_safe, sample):
+    def agent_action(self, obs, sample):
         state = obs.to_vect()
-        if not is_safe: #or (len(self.sub_picker.subs_2_act) > 0):
-            with torch.no_grad():
-                sub2act = self.sub_picker.pick_sub(obs, sample) 
-                logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
-                agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
-                #logger.info(f"Agent position found: {agent_pos}")
-                action, grid_action = self.agents[agent_pos].select_action(state)   
-                #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
-                
-                return action, grid_action
+        with torch.no_grad():
+            sub2act = self.sub_picker.pick_sub(obs, sample) 
+            #logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
+            agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
+            #logger.info(f"Agent position found: {agent_pos}")
+            action, grid_action, logprob, value = self.agents[agent_pos].select_action(state)   
+            #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
+
+            self.sub_picker.prev_sub = sub2act
+
+            return action, grid_action, logprob, value, state, agent_pos
         
-        if is_safe:
-            return -1, self.env.action_space()
         
 
     
@@ -111,7 +110,7 @@ class IMARL:
         for cluster_id, agent in self.agents.items():
             model_path = os.path.join(iconfig['model_path'], f"ppo_{cluster_id}.pth")
             if os.path.exists(model_path):
-                agent.load(model_path)
+                agent.load(iconfig['model_path'], filename=f"ppo_{cluster_id}.pth")
                 logger.info(f"Model loaded for cluster {cluster_id} from {model_path}")
             else:
                 logger.warning(f"Model file not found for cluster {cluster_id} at {model_path}")

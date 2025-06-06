@@ -4,6 +4,7 @@ from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 import os
 from HMARL.Utils.action_converter import ActionConverter, MADiscActionConverter
+from HMARL.Utils.logger import logger
 
 
 class RolloutBuffer:
@@ -192,25 +193,20 @@ class PPO:
                 state = torch.FloatTensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
 
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
             return action.detach().cpu().numpy().flatten()
         else:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
             
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
+            #self.buffer.states.append(state)
+            #self.buffer.actions.append(action)
+            #self.buffer.logprobs.append(action_logprob)
+            #self.buffer.state_values.append(state_val)
 
             action = action.item()
             grid_action = self.ac.act(action)
-            return action, grid_action
+            return action, grid_action, action_logprob, state_val
 
     def update(self):
         # Monte Carlo estimate of returns
@@ -233,6 +229,7 @@ class PPO:
         old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(self.device)
 
         # calculate advantages
+        logger.info(f"rewards shape: {rewards.shape}, old_state_values shape: {old_state_values.shape}")
         advantages = rewards.detach() - old_state_values.detach()
 
         # Optimize policy for K epochs

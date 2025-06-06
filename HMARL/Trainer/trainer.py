@@ -17,6 +17,9 @@ from lightsim2grid import LightSimBackend
 from grid2op.Reward import L2RPNSandBoxScore
 from HMARL.Utils.custom_reward import LossReward, MarginReward
 from grid2op.Exceptions import *
+import random
+import matplotlib.pyplot as plt
+
 
 
 
@@ -125,42 +128,62 @@ class MARLTrainer:
             for step in tqdm(range(self.env.max_episode_duration()), desc=f"Episode {episode}"):
                 try:
                     is_safe = self.imarl.is_safe(obs)
-                    action_idx, grid_action = self.imarl.agent_action(obs, is_safe, sample=True)
+
+                    if not is_safe:
+                        action_idx, grid_action, logprob, value, state_vec, cid = self.imarl.agent_action(obs, sample=True)
+                    else:
+                        grid_action = self.env.action_space()
+                        action_idx, logprob, value, state_vec, cid = -1, None, None, None, None
+
                     obs_, reward, done, _ = self.env.step(grid_action)
                     episode_reward_tot += reward
 
-                    sub = self.imarl.sub_picker.prev_sub
-                    cid = self.imarl.sub_to_cluster[sub]
+                    if not is_safe:
+                        agent = self.imarl.agents[cid]
+                        agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
+                        agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
+                        agent.buffer.logprobs.append(logprob)
+                        agent.buffer.state_values.append(value)
+                        agent.buffer.rewards.append(reward)
+                        agent.buffer.is_terminals.append(done)
 
-                    self.imarl.agents[cid].buffer.rewards.append(reward)
-                    self.imarl.agents[cid].buffer.is_terminals.append(done)
-
-                    #self.episode_rewards[cid].append(reward)
-                    self.step_rewards[cid].append(reward)
-                    self.step_counter[cid] += 1
-
+                    
                     obs = obs_
 
                     if done:
                         self.env.set_id(episode)
-                        
                         obs = self.env.reset()
                         done = False
                         reward = self.env.reward_range[0]
-
                         self.env.fast_forward_chronics(step - 1)
+
                         is_safe = self.imarl.is_safe(obs)
-                        action_idx, grid_action = self.imarl.agent_action(obs, is_safe, sample=True)
-                        obs_, reward, done, _ = self.env.step(grid_action)
-                        self.imarl.agents[cid].buffer.rewards.append(reward)
+                        if not is_safe:
+                            action_idx, grid_action, logprob, value, state_vec, cid = self.imarl.agent_action(obs, sample=True)
+                            obs_, reward, done, _ = self.env.step(grid_action)
+
+                            agent = self.imarl.agents[cid]
+                            agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
+                            agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
+                            agent.buffer.logprobs.append(logprob)
+                            agent.buffer.state_values.append(value)
+                            agent.buffer.rewards.append(reward)
+                            agent.buffer.is_terminals.append(done)
+
 
                     # Train when buffer is large enough
                     if all(len(agent.buffer) >= self.config['update_timestep'] for agent in self.imarl.agents.values()):
                         logger.info(f"All buffers full. Updating all agents at step {step}")
+                        logger.info(f"""=============================================================================================================================================
+                                                                                        Training Started
+                             =============================================================================================================================================)       """)
                         for cid, agent in self.imarl.agents.items():
-                            logger.info(f"Updating agent {cid} with buffer size {len(agent.buffer)}")
+                            assert len(agent.buffer.rewards) == len(agent.buffer.states), \
+        f"[BUG] Buffer size mismatch: rewards={len(agent.buffer.rewards)}, states={len(agent.buffer.states)} for agent {cid}"
+
                             agent.update()
-                            self.step_counter[cid] = 0
+                        self.imarl.save_model()
+                        logger.info(f"model saved at {self.model_dir}")
 
 
                 except NoForecastAvailable as e:
@@ -177,8 +200,8 @@ class MARLTrainer:
                     self.env.fast_forward_chronics(step-1)
                     continue 
 
-            if (episode + 1) % self.config['save_model_freq'] == 0:
-                self.imarl.save_model()
+            #if (episode + 1) % self.config['save_model_freq'] == 0:
+            
         
             self.episode_rewards.append(episode_reward_tot)
         self.save_rewards()
@@ -190,3 +213,71 @@ class MARLTrainer:
         for cid in self.imarl.agents:    
             np.save(os.path.join(self.reward_dir, f"ppo_cluster{cid}_step_rewards.npy"), np.array(self.step_rewards[cid]))
         logger.info("Saved reward logs for all agents.")
+
+
+
+
+    def evaluate_hmarl(self, num_episodes=3, save_path="eval_results.png"):
+        max_steps = self.env.max_episode_duration()
+        episode_steps = []
+        paths = self.env.chronics_handler.subpaths
+
+        # Randomly select 3 episodes, avoid duplicates
+        test_paths = random.sample(list(paths)[900:], num_episodes)
+
+        for ep_idx, test_path in enumerate(test_paths):
+            logger.info(f"Selected Chronics [{ep_idx}]: {test_path}")
+
+            try:
+                self.env.set_id(test_path)
+                logger.info(f"Selected Chronic loaded")
+            except Exception as e:
+                logger.error(f"Error occurred {e}")
+
+            obs = self.env.reset()
+            reward = self.env.reward_range[0]
+            done = False
+            steps_survived = 0
+
+            for i in tqdm(range(max_steps), desc=f"Episode {test_path}", leave=True):
+                try:
+                    is_safe = self.imarl.is_safe(obs)
+                    if not is_safe:
+                        _, grid_action, _, _, _, _ = self.imarl.agent_action(obs, sample=True)
+                    else:
+                        grid_action = self.env.action_space()
+
+                    obs, reward, done, _ = self.env.step(grid_action)
+                    steps_survived += 1
+                    if done:
+                        break
+
+                except Exception as e:
+                    logger.error(f"Error occurred {e}")
+                    break  # If error, treat as episode end
+
+            episode_steps.append(steps_survived)
+            logger.info(f"Episode {ep_idx+1}: Survived {steps_survived} steps (max: {max_steps})")
+
+        # Visualization: Bar chart
+        fig, ax = plt.subplots(figsize=(8, 4))
+        blackout_steps = [max_steps - s for s in episode_steps]
+        ep_labels = [f"Ep {i+1}" for i in range(num_episodes)]
+
+        ax.bar(ep_labels, episode_steps, color='green', label='Survived Steps')
+        ax.bar(ep_labels, blackout_steps, bottom=episode_steps, color='red', label='Blackout/Lost Steps')
+
+        ax.set_ylabel('Steps')
+        ax.set_title('H-MARL Survival per Episode')
+        ax.legend()
+        ax.set_ylim(0, max_steps + 10)
+        plt.tight_layout()
+
+        plt.savefig(save_path)
+        logger.info(f"Evaluation bar chart saved to {save_path}")
+        plt.close(fig)  # Avoid display in some environments
+
+        return episode_steps  # Optionally return for further processing
+
+
+            
