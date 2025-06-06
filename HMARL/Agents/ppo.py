@@ -23,6 +23,9 @@ class RolloutBuffer:
         del self.state_values[:]
         del self.is_terminals[:]
 
+    def __len__(self):
+        return len(self.rewards)
+
 
 
 
@@ -178,6 +181,9 @@ class PPO:
         else:
             print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
         print("--------------------------------------------------------------------------------------------")
+
+    def get_buffer_size(self):
+        return len(self.buffer)
 
     def select_action(self, state):
 
