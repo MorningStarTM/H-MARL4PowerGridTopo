@@ -119,6 +119,10 @@ class MARLTrainer:
         start_time = datetime.now().replace(microsecond=0)
 
         for episode in range(min_episode, max_episodes):
+            logger.info(f"Episode ID : {episode} --- Episode name : {self.env.chronics_handler.get_name()}")
+            self.env.set_id(episode)
+
+
             obs = self.env.reset()
             done = False
             episode_reward = {cid: 0.0 for cid in self.imarl.agents.keys()}
