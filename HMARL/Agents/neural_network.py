@@ -64,12 +64,11 @@ class GCN(nn.Module):
     def __init__(self, input_dim, num_nodes=57, output_dim=None):
         super().__init__()
         self.num_nodes = num_nodes
-        self.flattened_dim = num_nodes * input_dim * 4
+        self.flattened_dim = num_nodes * input_dim * 2
         self.conv1 = GCNConv(input_dim, input_dim*2)
-        self.conv2 = GCNConv(input_dim*2, input_dim*4)
+        self.conv2 = GCNConv(input_dim*2, input_dim*2)
         self.lin1 = nn.Linear(self.flattened_dim, self.flattened_dim//2)
-        self.lin2 = nn.Linear(self.flattened_dim//2, self.flattened_dim//4)
-        self.lin3 = nn.Linear(self.flattened_dim//4, output_dim)
+        self.lin3 = nn.Linear(self.flattened_dim//2, output_dim)
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=-1)
 
@@ -79,8 +78,6 @@ class GCN(nn.Module):
         x = self.conv2(x, edge_index)
         x = x.view(-1)  
         x = self.lin1(x)
-        x = self.relu(x)
-        x = self.lin2(x)
         x = self.relu(x)
         x = self.lin3(x)
         x = self.softmax(x)

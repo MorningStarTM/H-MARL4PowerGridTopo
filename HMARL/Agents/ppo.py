@@ -5,7 +5,8 @@ from torch.distributions import Categorical
 import os
 from HMARL.Utils.action_converter import ActionConverter, MADiscActionConverter
 from HMARL.Utils.logger import logger
-
+from HMARL.Agents.neural_network import LinearResNet, GCN, GAT, ResGCN
+from HMARL.Utils.node import Node
 
 class RolloutBuffer:
     def __init__(self):
@@ -28,11 +29,32 @@ class RolloutBuffer:
         return len(self.rewards)
 
 
+class GraphRolloutBuffer:
+    def __init__(self):
+        self.actions = []
+        self.logprobs = []
+        self.rewards = []
+        self.state_values = []
+        self.is_terminals = []
+        self.e_states = []
+        self.e_adj = []
+    
+    def clear(self):
+        del self.actions[:]
+        del self.logprobs[:]
+        del self.rewards[:]
+        del self.state_values[:]
+        del self.is_terminals[:]
+        del self.e_states[:]
+        del self.e_adj[:]
+
+    def __len__(self):
+        return len(self.rewards)
 
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space=False, action_std_init=0.06):
+    def __init__(self, state_dim, action_dim, has_continuous_action_space=False, action_std_init=0.06, network="normal"):
         super(ActorCritic, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,30 +74,44 @@ class ActorCritic(nn.Module):
                             nn.Tanh()
                         )
         else:
-            self.actor = nn.Sequential(
+            if network == "normal":
+                
+                self.actor = nn.Sequential(
+                                nn.Linear(state_dim, 512),
+                                nn.Tanh(),
+                                nn.Linear(512, 256),
+                                nn.Tanh(),
+                                nn.Linear(256, 64),
+                                nn.Tanh(),
+                                nn.Linear(64, 64),
+                                nn.Tanh(),
+                                nn.Linear(64, action_dim),
+                                nn.Softmax(dim=-1)
+                            )
+                logger.info(f"Normal Network initialized for actor")
+            elif network == "resnet":
+                self.actor = LinearResNet(state_dim, hidden_dim=64, output_dim=action_dim, num_blocks=6)
+                logger.info(f"ResNet Network initialized for actor")
+
+                
+        if network == "normal":
+            # critic
+            self.critic = nn.Sequential(
                             nn.Linear(state_dim, 512),
                             nn.Tanh(),
                             nn.Linear(512, 256),
                             nn.Tanh(),
-                            nn.Linear(256, 64),
+                            nn.Linear(256, 128),
                             nn.Tanh(),
-                            nn.Linear(64, 64),
+                            nn.Linear(128, 64),
                             nn.Tanh(),
-                            nn.Linear(64, action_dim),
-                            nn.Softmax(dim=-1)
+                            nn.Linear(64, 1)
                         )
-        # critic
-        self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 512),
-                        nn.Tanh(),
-                        nn.Linear(512, 256),
-                        nn.Tanh(),
-                        nn.Linear(256, 128),
-                        nn.Tanh(),
-                        nn.Linear(128, 64),
-                        nn.Tanh(),
-                        nn.Linear(64, 1)
-                    )
+        elif network == "resnet":
+            self.critic = LinearResNet(state_dim, hidden_dim=64, output_dim=1, num_blocks=3)
+
+
+
         
     def set_action_std(self, new_action_std):
         if self.has_continuous_action_space:
@@ -146,13 +182,13 @@ class PPO:
         
         self.buffer = RolloutBuffer()
 
-        self.policy = ActorCritic(state_dim, action_dim).to(self.device)
+        self.policy = ActorCritic(state_dim, action_dim, network=self.config['network']).to(self.device)
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
                         {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
                     ])
 
-        self.policy_old = ActorCritic(state_dim, action_dim).to(self.device)
+        self.policy_old = ActorCritic(state_dim, action_dim, network=self.config['network']).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
@@ -263,9 +299,240 @@ class PPO:
         self.buffer.clear()
     
     def save(self, checkpoint_path, filename="ppo_checkpoint.pth"):
+        filename = f"ppo_{self.config['network']}_checkpoint.pth"
         torch.save(self.policy_old.state_dict(), os.path.join(checkpoint_path, filename))
    
     def load(self, checkpoint_path, filename="ppo_checkpoint.pth"):
+        filename = f"ppo_{self.config['network']}_checkpoint.pth"
+        file = os.path.join(checkpoint_path, filename)
+        self.policy_old.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
+        self.policy.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
+
+
+
+
+
+
+class GraphActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim, node:Node, has_continuous_action_space=False, network="gcn"):
+        super().__init__()
+        self.node = node
+        self.has_continuous_action_space = has_continuous_action_space
+        if has_continuous_action_space:
+            raise ValueError("GraphActorCritic only supports discrete action spaces.")
+
+        if network == "gcn":
+            self.actor = GCN(state_dim, output_dim=action_dim)
+
+            self.critic = GCN(state_dim, output_dim=1)
+            logger.info(f"GCN Network initialized for actor&critic")
+
+        elif network == "gat":
+            self.actor = GAT(state_dim, output_dim=action_dim, heads=8)
+
+            self.critic = GAT(state_dim, output_dim=1)
+            logger.info(f"GAT Network initialized for actor&critic")
+
+        elif network == "resgcn":
+            self.actor = ResGCN(state_dim, hidden_dim=32, num_nodes=57, num_blocks=6, output_dim=action_dim)
+
+            self.critic = ResGCN(state_dim, hidden_dim=32, num_nodes=57, num_blocks=3, output_dim=1)
+            logger.info(f"ResGCN Network initialized for actor&critic")
+
+
+
+    def set_action_std(self, new_action_std):
+        if self.has_continuous_action_space:
+            self.action_var = torch.full((self.action_dim,), new_action_std * new_action_std).to(self.device)
+        else:
+            print("--------------------------------------------------------------------------------------------")
+            print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
+            print("--------------------------------------------------------------------------------------------")
+
+    def forward(self):
+        raise NotImplementedError
+    
+
+    def act(self, state):
+        t_state_, t_adj = self.node.convert_obs(state)
+        if self.has_continuous_action_space:
+            raise ValueError("GraphPPO only supports discrete action spaces.")
+
+        else:
+            
+            action_probs = self.actor(t_state_, t_adj)
+            dist = Categorical(action_probs)
+
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+        state_val = self.critic(t_state_, t_adj)
+
+        return action.detach(), action_logprob.detach(), state_val.detach()
+    
+
+    def evaluate(self, t_state_, t_adj, action):
+        #t_state_, t_adj = self.node.convert_obs(state)
+        if self.has_continuous_action_space:
+            raise ValueError("GraphPPO only supports discrete action spaces.")
+
+        else:
+            
+            action_probs = self.actor(t_state_, t_adj)
+            dist = Categorical(action_probs)
+        action_logprobs = dist.log_prob(action)
+        dist_entropy = dist.entropy()
+        state_values = self.critic(t_state_, t_adj)
+        
+        return action_logprobs, state_values, dist_entropy, t_state_, t_adj
+    
+
+
+
+class GraphPPO():
+    def __init__(self, state_dim, sublist, env, config):
+        self.config = config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Cuda initialized: {self.device}")
+        self.has_continuous_action_space = self.config['has_continuous_action_space']
+
+        self.ac = MADiscActionConverter(env, sublist)
+        action_dim = self.ac.action_size()
+
+        if self.config['has_continuous_action_space']:
+            self.action_std = self.config['action_std_init']
+
+        self.gamma = self.config['gamma']
+        self.eps_clip = self.config['eps_clip']
+        self.K_epochs = self.config['K_epochs']
+        self.buffer = GraphRolloutBuffer()
+
+        self.node = Node(env)
+
+        self.policy = GraphActorCritic(state_dim, action_dim, self.node, network=self.config['network']).to(self.device)
+
+        self.policy_old = GraphActorCritic(state_dim, action_dim, self.node, network=self.config['network']).to(self.device)
+
+        self.policy_old.load_state_dict(self.policy.state_dict())
+
+        self.optimizer = torch.optim.Adam([
+                        {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
+                        {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
+                    ])
+        
+        self.MseLoss = nn.MSELoss()
+
+
+
+    def set_action_std(self, new_action_std):
+        if self.has_continuous_action_space:
+            self.action_std = new_action_std
+            self.policy.set_action_std(new_action_std)
+            self.policy_old.set_action_std(new_action_std)
+        else:
+            print("--------------------------------------------------------------------------------------------")
+            print("WARNING : Calling PPO::set_action_std() on discrete action space policy")
+            print("--------------------------------------------------------------------------------------------")
+
+    def decay_action_std(self, action_std_decay_rate, min_action_std):
+        print("--------------------------------------------------------------------------------------------")
+        if self.has_continuous_action_space:
+            self.action_std = self.action_std - action_std_decay_rate
+            self.action_std = round(self.action_std, 4)
+            if (self.action_std <= min_action_std):
+                self.action_std = min_action_std
+                print("setting actor output action_std to min_action_std : ", self.action_std)
+            else:
+                print("setting actor output action_std to : ", self.action_std)
+            self.set_action_std(self.action_std)
+
+        else:
+            print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
+        print("--------------------------------------------------------------------------------------------")
+
+    def get_buffer_size(self):
+        return len(self.buffer)
+    
+
+
+    def select_action(self, state):
+
+        if self.has_continuous_action_space:
+            raise ValueError("GraphPPO only supports discrete action spaces.")
+        else:
+            with torch.no_grad():
+                #state = torch.FloatTensor(state).to(self.device)
+                action, action_logprob, state_val, t_state_, t_adj = self.policy_old.act(state)
+            
+
+            action = action.item()
+            grid_action = self.ac.act(action)
+            return action, grid_action, action_logprob, state_val, t_state_, t_adj
+        
+
+
+    def update(self):
+        # Monte Carlo estimate of returns
+        rewards = []
+        discounted_reward = 0
+        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
+            if is_terminal:
+                discounted_reward = 0
+            discounted_reward = reward + (self.gamma * discounted_reward)
+            rewards.insert(0, discounted_reward)
+            
+        # Normalizing the rewards
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+
+        # convert list to tensor
+        old_e_states = torch.squeeze(torch.stack(self.buffer.e_states, dim=0)).detach().to(self.device)
+        old_e_adj = torch.squeeze(torch.stack(self.buffer.e_adj, dim=0)).detach().to(self.device)
+        old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
+        old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(self.device)
+        old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(self.device)
+
+        # calculate advantages
+        
+        advantages = rewards.detach() - old_state_values.detach()
+
+        # Optimize policy for K epochs
+        for _ in range(self.K_epochs):
+
+            # Evaluating old actions and values
+            logprobs, state_values, dist_entropy = self.policy.evaluate(old_e_states, old_e_adj, old_actions)
+
+            # match state_values tensor dimensions with rewards tensor
+            state_values = torch.squeeze(state_values)
+            
+            # Finding the ratio (pi_theta / pi_theta__old)
+            ratios = torch.exp(logprobs - old_logprobs.detach())
+
+            # Finding Surrogate Loss  
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+
+            # final loss of clipped objective PPO
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
+            
+            # take gradient step
+            self.optimizer.zero_grad()
+            loss.mean().backward()
+            self.optimizer.step()
+            
+        # Copy new weights into old policy
+        self.policy_old.load_state_dict(self.policy.state_dict())
+
+        # clear buffer
+        self.buffer.clear()
+
+
+
+    def save(self, checkpoint_path, filename="ppo_checkpoint.pth"):
+        filename = f"ppo_{self.config['network']}_checkpoint.pth"
+        torch.save(self.policy_old.state_dict(), os.path.join(checkpoint_path, filename))
+   
+    def load(self, checkpoint_path, filename="ppo_checkpoint.pth"):
+        filename = f"ppo_{self.config['network']}_checkpoint.pth"
         file = os.path.join(checkpoint_path, filename)
         self.policy_old.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
         self.policy.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
