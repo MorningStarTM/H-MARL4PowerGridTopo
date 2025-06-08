@@ -1,5 +1,5 @@
 import grid2op
-from HMARL.Agents.ppo import PPO
+from HMARL.Agents.ppo import PPO, GraphPPO
 from HMARL.Utils.cluster import ClusterUtils
 from HMARL.Agents.MiddleAgents import RuleBasedSubPicker, FixedSubPicker
 from HMARL.config import iconfig
@@ -12,6 +12,7 @@ import numpy as np
 
 AGENT = {
     'ppo': PPO, 
+    'graph_ppo': GraphPPO
 }
 
 MIDDLE_AGENT = {
@@ -44,6 +45,7 @@ class IMARL:
 
     def create_clustered_agents(self):
         agent_type = AGENT[iconfig['agent_type']]
+        logger.info(f"Creating agents of type: {iconfig['agent_type']}")
         self.agents = {}
         
         for cluster_id, subs_list in self.clusters.items():
@@ -79,12 +81,18 @@ class IMARL:
             #logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
             agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
             #logger.info(f"Agent position found: {agent_pos}")
-            action, grid_action, logprob, value = self.agents[agent_pos].select_action(state)   
+            self.sub_picker.prev_sub = sub2act
+            if iconfig['agent_type'] == 'graph_ppo':
+                action, grid_action, logprob, value, t_state_, t_adj = self.agents[agent_pos].select_action(obs)
+                return action, grid_action, logprob, value, state, agent_pos, t_state_, t_adj
+            else:
+                action, grid_action, logprob, value = self.agents[agent_pos].select_action(obs) 
+                return action, grid_action, logprob, value, state, agent_pos  
             #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
 
-            self.sub_picker.prev_sub = sub2act
+            
 
-            return action, grid_action, logprob, value, state, agent_pos
+            
         
         
 
