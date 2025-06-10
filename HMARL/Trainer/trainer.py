@@ -17,6 +17,7 @@ from HMARL.Utils.custom_reward import LossReward, MarginReward
 from grid2op.Exceptions import *
 import random
 import matplotlib.pyplot as plt
+import math
 
 
 
@@ -40,13 +41,17 @@ class MARLTrainer:
         self.step_rewards = {cid: [] for cid in imarl.agents.keys()}
         self.step_counter = {cid: 0 for cid in imarl.agents.keys()}
 
+    
+
     def train(self, min_episode, max_episodes):
         logger.info("Starting MARL Training")
         start_time = datetime.now().replace(microsecond=0)
+        episode_steps = []
 
         for episode in range(min_episode, max_episodes):
-            logger.info(f"Episode ID : {episode} --- Episode name : {self.env.chronics_handler.get_name()}")
+            total_steps = 0
             self.env.set_id(episode)
+            logger.info(f"Episode ID : {episode} --- Episode name : {self.env.chronics_handler.get_name()}")
 
 
             obs = self.env.reset()
@@ -60,11 +65,9 @@ class MARLTrainer:
                     is_safe = self.imarl.is_safe(obs)
 
                     if not is_safe:
-                        if self.config['agent_type'] == 'graph_ppo':
-                            action_idx, grid_action, logprob, value, state_vec, cid, t_state_, t_adj = self.imarl.agent_action(obs, sample=True)
-                        else:
-                            action_idx, grid_action, logprob, value, state_vec, cid = self.imarl.agent_action(obs, sample=True)
+                        action_idx, grid_action, logprob, value, state_vec, cid = self.imarl.agent_action(obs, sample=True)
                     else:
+                        total_steps += 1
                         grid_action = self.env.action_space()
                         action_idx, logprob, value, state_vec, cid = -1, None, None, None, None
 
@@ -72,24 +75,14 @@ class MARLTrainer:
                     episode_reward_tot += reward
 
                     if not is_safe:
-                        if self.config['agent_type'] == 'graph_ppo':
-                            agent = self.imarl.agents[cid]
-                            agent.buffer.e_states.append(torch.FloatTensor(t_state_).to(agent.device))
-                            agent.buffer.e_adj.append(torch.FloatTensor(t_adj).to(agent.device))
-                            agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
-                            agent.buffer.logprobs.append(logprob)
-                            agent.buffer.state_values.append(value)
-                            agent.buffer.rewards.append(reward)
-                            agent.buffer.is_terminals.append(done)
                         
-                        else:
-                            agent = self.imarl.agents[cid]
-                            agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
-                            agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
-                            agent.buffer.logprobs.append(logprob)
-                            agent.buffer.state_values.append(value)
-                            agent.buffer.rewards.append(reward)
-                            agent.buffer.is_terminals.append(done)
+                        agent = self.imarl.agents[cid]
+                        agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
+                        agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
+                        agent.buffer.logprobs.append(logprob)
+                        agent.buffer.state_values.append(value)
+                        agent.buffer.rewards.append(reward)
+                        agent.buffer.is_terminals.append(done)
 
                     
                     obs = obs_
@@ -109,24 +102,14 @@ class MARLTrainer:
                                 action_idx, grid_action, logprob, value, state_vec, cid = self.imarl.agent_action(obs, sample=True)
                             obs_, reward, done, _ = self.env.step(grid_action)
 
-                            if self.config['agent_type'] == 'graph_ppo':
-                                agent = self.imarl.agents[cid]
-                                agent.buffer.e_states.append(torch.FloatTensor(t_state_).to(agent.device))
-                                agent.buffer.e_adj.append(torch.FloatTensor(t_adj).to(agent.device))
-                                agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
-                                agent.buffer.logprobs.append(logprob)
-                                agent.buffer.state_values.append(value)
-                                agent.buffer.rewards.append(reward)
-                                agent.buffer.is_terminals.append(done)
-
-                            else:
-                                agent = self.imarl.agents[cid]
-                                agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
-                                agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
-                                agent.buffer.logprobs.append(logprob)
-                                agent.buffer.state_values.append(value)
-                                agent.buffer.rewards.append(reward)
-                                agent.buffer.is_terminals.append(done)
+                            
+                            agent = self.imarl.agents[cid]
+                            agent.buffer.states.append(torch.FloatTensor(state_vec).to(agent.device))
+                            agent.buffer.actions.append(torch.tensor(action_idx).to(agent.device))
+                            agent.buffer.logprobs.append(logprob)
+                            agent.buffer.state_values.append(value)
+                            agent.buffer.rewards.append(reward)
+                            agent.buffer.is_terminals.append(done)
 
 
                     # Train when buffer is large enough
@@ -136,7 +119,7 @@ class MARLTrainer:
                                                                                         Training Started
                              =============================================================================================================================================)       """)
                         for cid, agent in self.imarl.agents.items():
-                            assert len(agent.buffer.rewards) == len(agent.buffer.states), \
+                            assert len(agent.buffer.rewards) == len(agent.buffer.actions), \
         f"[BUG] Buffer size mismatch: rewards={len(agent.buffer.rewards)}, states={len(agent.buffer.states)} for agent {cid}"
 
                             agent.update()
@@ -162,15 +145,61 @@ class MARLTrainer:
             
         
             self.episode_rewards.append(episode_reward_tot)
+            episode_steps.append(total_steps)
+
         self.save_rewards()
+        self.plot_dn_pies(dn_steps_list=episode_steps, total_steps_per_episode=self.env.max_episode_duration(),show=False)
         logger.info("Training completed")
         logger.info(f"Total training time: {datetime.now().replace(microsecond=0) - start_time}")
+        
 
     def save_rewards(self):
         np.save(os.path.join(self.reward_dir, f"ippo_cluster_episode_rewards.npy"), np.array(self.episode_rewards))
         for cid in self.imarl.agents:    
             np.save(os.path.join(self.reward_dir, f"ppo_cluster{cid}_step_rewards.npy"), np.array(self.step_rewards[cid]))
         logger.info("Saved reward logs for all agents.")
+
+    
+    def plot_dn_pies(self, dn_steps_list, total_steps_per_episode, filename="HMARL\\experiment\\dn_pie_grid.png", show=True):
+        """
+        Plots and saves a grid of pie charts for each episode, arranged in a nearly square grid.
+
+        Args:
+            dn_steps_list: List[int] - Do-nothing steps per episode.
+            total_steps_per_episode: int - Total steps per episode.
+            filename: str - Output filename.
+            show: bool - If True, display the plot.
+
+        Returns:
+            fig: matplotlib.figure.Figure
+        """
+        n = len(dn_steps_list)
+        grid_size = math.ceil(math.sqrt(n))
+        rows = cols = grid_size
+        if (rows-1) * cols >= n:
+            rows -= 1
+
+        fig, axes = plt.subplots(rows, cols, figsize=(4*cols, 4*rows))
+        axes = axes.flatten() if n > 1 else [axes]
+
+        for i, dn in enumerate(dn_steps_list):
+            other = total_steps_per_episode - dn
+            sizes = [dn, other]
+            labels = ['Do Nothing', 'Other']
+            colors = ['#3CB371', '#FFA07A']
+            axes[i].pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90, explode=(0.1, 0))
+            axes[i].set_title(f'Episode {i+1}\n{dn}/{total_steps_per_episode}')
+        
+        # Hide any unused axes
+        for j in range(len(dn_steps_list), len(axes)):
+            axes[j].axis('off')
+
+        plt.tight_layout()
+        fig.savefig(filename, dpi=150)
+        print(f"Saved pie chart grid to {filename}")
+        if show:
+            plt.show()
+        plt.close(fig)
 
 
 
