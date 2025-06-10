@@ -1,13 +1,13 @@
 iconfig = {"ENV_NAME" : "l2rpn_case14_sandbox",
             "middle_agent_type" : "capa",  # Options: "capa", "fixed_sub"
-            "agent_type" : "graph_ppo",  
-            "input_dim" : 3,
+            "agent_type" : "ppo",  
+            "input_dim" : 467,
             'has_continuous_action_space': False,
             'action_std_init': 0.6,
             'lr_actor': 1e-4,
             'lr_critic': 1e-4,
 
-            'update_timestep': 1000,
+            'update_timestep': 400*3,
             'gamma': 0.99,
             'K_epochs': 80,
             'eps_clip': 0.2,
@@ -25,7 +25,7 @@ iconfig = {"ENV_NAME" : "l2rpn_case14_sandbox",
             'min_action_std': 0.1,                    # Minimum std after decay
             'action_std_decay_freq': int(2.5e5), 
 
-            'network': "gcn",  #gat, resgcn, gcn
+            'network': "resnet",  #gat, resgcn, gcn
             
             'model_path': "HMARL\\models"
             }
