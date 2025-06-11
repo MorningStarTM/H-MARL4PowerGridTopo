@@ -108,7 +108,7 @@ class IMARL:
             os.makedirs(iconfig['model_path'])
             logger.info(f"Model path created: {iconfig['model_path']}")
         for cluster_id, agent in self.agents.items():
-            agent.save(iconfig['model_path'], filename=f"ppo_{cluster_id}.pth")
+            agent.save(iconfig['model_path'], filename=f"ppo_{iconfig['network']}_{cluster_id}.pth")
         
         logger.info("Models saved successfully.")
 
@@ -117,7 +117,7 @@ class IMARL:
         for cluster_id, agent in self.agents.items():
             model_path = os.path.join(iconfig['model_path'], f"ppo_{cluster_id}.pth")
             if os.path.exists(model_path):
-                agent.load(iconfig['model_path'], filename=f"ppo_{cluster_id}.pth")
+                agent.load(iconfig['model_path'], filename=f"ppo_{iconfig['network']}_{cluster_id}.pth")
                 logger.info(f"Model loaded for cluster {cluster_id} from {model_path}")
             else:
                 logger.warning(f"Model file not found for cluster {cluster_id} at {model_path}")

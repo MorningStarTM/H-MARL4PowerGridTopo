@@ -299,11 +299,9 @@ class PPO:
         self.buffer.clear()
     
     def save(self, checkpoint_path, filename="ppo_checkpoint.pth"):
-        filename = f"ppo_{self.config['network']}_checkpoint.pth"
         torch.save(self.policy_old.state_dict(), os.path.join(checkpoint_path, filename))
    
     def load(self, checkpoint_path, filename="ppo_checkpoint.pth"):
-        filename = f"ppo_{self.config['network']}_checkpoint.pth"
         file = os.path.join(checkpoint_path, filename)
         self.policy_old.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
         self.policy.load_state_dict(torch.load(file, map_location=lambda storage, loc: storage))
