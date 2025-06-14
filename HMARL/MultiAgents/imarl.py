@@ -113,9 +113,11 @@ class IMARL:
         logger.info("Models saved successfully.")
 
 
-    def load_models(self):
+    def load_models(self, folder_name=None):
+        if folder_name is not None:
+            iconfig['model_path'] = folder_name
         for cluster_id, agent in self.agents.items():
-            model_path = os.path.join(iconfig['model_path'], f"ppo_{cluster_id}.pth")
+            model_path = os.path.join(iconfig['model_path'], f"ppo_{iconfig['network']}_{cluster_id}.pth")
             if os.path.exists(model_path):
                 agent.load(iconfig['model_path'], filename=f"ppo_{iconfig['network']}_{cluster_id}.pth")
                 logger.info(f"Model loaded for cluster {cluster_id} from {model_path}")
