@@ -1,8 +1,10 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 from HMARL.Agents.neural_network import LinearResNet, GCN, GAT, ResGCN
+from HMARL.Utils.logger import logger
 
 
 class ActorCritic(nn.Module):
@@ -66,3 +68,19 @@ class ActorCritic(nn.Module):
         del self.logprobs[:]
         del self.state_values[:]
         del self.rewards[:]
+
+    
+    def save_model(self, checkpoint, filename="actor_critic.pt"):
+        os.makedirs(checkpoint, exist_ok=True)
+        logger.info(f"model save folder created")
+        model_path = os.path.join(checkpoint, filename)
+        torch.save(self.state_dict(), model_path)
+        print(f"[INFO] Model saved to {model_path}")
+
+    def load_model(self, checkpoint, filename="actor_critic.pt"):
+        model_path = os.path.join(checkpoint, filename)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"[ERROR] Model file not found: {model_path}")
+        self.load_state_dict(torch.load(model_path))
+        self.eval()
+        print(f"[INFO] Model loaded from {model_path}")
