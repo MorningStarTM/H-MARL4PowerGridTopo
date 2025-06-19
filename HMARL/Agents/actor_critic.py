@@ -3,34 +3,40 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from HMARL.Utils.action_converter import ActionConverter, MADiscActionConverter
 from HMARL.Agents.neural_network import LinearResNet, GCN, GAT, ResGCN
 from HMARL.Utils.logger import logger
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, config):
+    def __init__(self, state, sublist, env, config):
         super(ActorCritic, self).__init__()
         self.config = config
-        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.ac = MADiscActionConverter(env, sublist)
+        action_dim = self.ac.action_size()
+
         if self.config['network'] == 'resnet':
-            self.action_layer = LinearResNet(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=self.config['action_dim'], num_blocks=6)
-            self.value_layer = LinearResNet(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=1, num_blocks=6)
+            self.action_layer = LinearResNet(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=action_dim, num_blocks=6)
+            self.value_layer = LinearResNet(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=1, num_blocks=6)
         elif self.config['network'] == 'gcn':
-            self.action_layer = GCN(input_dim=self.config['state_dim'], output_dim=self.config['action_dim'])
-            self.value_layer = GCN(input_dim=self.config['state_dim'], output_dim=1)
+            self.action_layer = GCN(input_dim=self.config['input_dim'], output_dim=action_dim)
+            self.value_layer = GCN(input_dim=self.config['input_dim'], output_dim=1)
         elif self.config['network'] == 'gat':
-            self.action_layer = GAT(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=self.config['action_dim'], heads=6)
-            self.value_layer = GAT(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=1, heads=3)
+            self.action_layer = GAT(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=action_dim, heads=6)
+            self.value_layer = GAT(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=1, heads=3)
         elif self.config['network'] == 'resgcn':
-            self.action_layer = ResGCN(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=self.config['action_dim'], num_nodes=57, num_blocks=6)
-            self.value_layer = ResGCN(input_dim=self.config['state_dim'], hidden_dim=128, output_dim=1, num_nodes=57, num_blocks=6)
+            self.action_layer = ResGCN(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=action_dim, num_nodes=57, num_blocks=6)
+            self.value_layer = ResGCN(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=1, num_nodes=57, num_blocks=6)
         
         self.logprobs = []
         self.state_values = []
         self.rewards = []
 
-    def forward(self, state):
-        state = torch.from_numpy(state).float()
+        self.to(self.device)
+
+    def select_action(self, state):
+        state = torch.from_numpy(state).float().to(self.device)
         
         state_value = self.value_layer(state)
         
@@ -41,7 +47,9 @@ class ActorCritic(nn.Module):
         self.logprobs.append(action_distribution.log_prob(action))
         self.state_values.append(state_value)
         
-        return action.item()
+        action = action.item()
+        grid_action = self.ac.act(action)
+        return action, grid_action
     
     def calculateLoss(self, gamma=0.99):
         
