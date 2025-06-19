@@ -1,5 +1,6 @@
 import grid2op
 from HMARL.Agents.ppo import PPO
+from HMARL.Agents.actor_critic import ActorCritic
 from HMARL.Utils.cluster import ClusterUtils
 from HMARL.Agents.MiddleAgents import RuleBasedSubPicker, FixedSubPicker
 from HMARL.config import iconfig
@@ -12,6 +13,7 @@ import numpy as np
 
 AGENT = {
     'ppo': PPO, 
+    'ac': ActorCritic,
 }
 
 MIDDLE_AGENT = {
@@ -82,8 +84,12 @@ class IMARL:
             #logger.info(f"Agent position found: {agent_pos}")
             self.sub_picker.prev_sub = sub2act
             
-            action, grid_action, logprob, value = self.agents[agent_pos].select_action(state) 
-            return action, grid_action, logprob, value, state, agent_pos  
+            if iconfig['agent_type'] == 'ac':
+                action, grid_action = self.agents[agent_pos].select_action(state)
+                return action, grid_action
+            elif iconfig['agent_type'] == 'ppo':
+                action, grid_action, logprob, value = self.agents[agent_pos].select_action(state) 
+                return action, grid_action, logprob, value, state, agent_pos  
             #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
 
             
