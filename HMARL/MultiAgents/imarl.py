@@ -77,28 +77,20 @@ class IMARL:
 
     def agent_action(self, obs, sample):
         state = obs.to_vect()
-        with torch.no_grad():
-            sub2act = self.sub_picker.pick_sub(obs, sample) 
-            #logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
-            agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
-            #logger.info(f"Agent position found: {agent_pos}")
-            self.sub_picker.prev_sub = sub2act
-            
-            if iconfig['agent_type'] == 'ac':
-                action, grid_action = self.agents[agent_pos].select_action(state)
-                return action, grid_action
-            elif iconfig['agent_type'] == 'ppo':
-                action, grid_action, logprob, value = self.agents[agent_pos].select_action(state) 
-                return action, grid_action, logprob, value, state, agent_pos  
-            #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
-
-            
-
-            
+        sub2act = self.sub_picker.pick_sub(obs, sample) 
+        #logger.info(f"Substation to act: {sub2act} --- {self.sub_picker.prev_sub}")
+        agent_pos = self.find_agent_by_substation(sub2act, self.clusters)  
+        #logger.info(f"Agent position found: {agent_pos}")
+        self.sub_picker.prev_sub = sub2act
         
-        
-
-    
+        if iconfig['agent_type'] == 'ac':
+            action, grid_action, logprob, state_value = self.agents[agent_pos].select_action(state)
+            return action, grid_action, logprob, state_value, agent_pos
+        elif iconfig['agent_type'] == 'ppo':
+            action, grid_action, logprob, value = self.agents[agent_pos].select_action(state) 
+            return action, grid_action, logprob, value, state, agent_pos  
+        #logger.info(f"Action selected: {action}, Grid action: {grid_action}")      
+   
     def is_safe(self, obs):
         
         for ratio, limit in zip(obs.rho, self.thermal_limit):
@@ -110,11 +102,11 @@ class IMARL:
 
     
     def save_model(self):
-        if not os.path.exists(iconfig['model_path']):
-            os.makedirs(iconfig['model_path'])
-            logger.info(f"Model path created: {iconfig['model_path']}")
+        model_path = os.path.join(iconfig['model_path'], iconfig['agent_type'], iconfig['network'])
+        os.makedirs(model_path, exist_ok=True)
+        logger.info(f"Model path created: {iconfig['model_path']}")
         for cluster_id, agent in self.agents.items():
-            agent.save(iconfig['model_path'], filename=f"ppo_{iconfig['network']}_{cluster_id}.pth")
+            agent.save(model_path, filename=f"{iconfig['agent_type']}_{iconfig['network']}_{cluster_id}.pth")
         
         logger.info("Models saved successfully.")
 
@@ -123,9 +115,9 @@ class IMARL:
         if folder_name is not None:
             iconfig['model_path'] = folder_name
         for cluster_id, agent in self.agents.items():
-            model_path = os.path.join(iconfig['model_path'], f"ppo_{iconfig['network']}_{cluster_id}.pth")
+            model_path = os.path.join(iconfig['model_path'], iconfig['agent_type'], iconfig['network'])
             if os.path.exists(model_path):
-                agent.load(iconfig['model_path'], filename=f"ppo_{iconfig['network']}_{cluster_id}.pth")
+                agent.load(model_path, filename=f"{iconfig['agent_type']}_{iconfig['network']}_{cluster_id}.pth")#(iconfig['model_path'], filename=f"{iconfig['agent_type']}_{iconfig['network']}_{cluster_id}.pth")
                 logger.info(f"Model loaded for cluster {cluster_id} from {model_path}")
             else:
                 logger.warning(f"Model file not found for cluster {cluster_id} at {model_path}")
