@@ -15,6 +15,7 @@ class ActorCritic(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.ac = MADiscActionConverter(env, sublist)
         action_dim = self.ac.action_size()
+        
 
         if self.config['network'] == 'resnet':
             self.action_layer = LinearResNet(input_dim=self.config['input_dim'], hidden_dim=128, output_dim=action_dim, num_blocks=6)
@@ -32,10 +33,12 @@ class ActorCritic(nn.Module):
         self.logprobs = []
         self.state_values = []
         self.rewards = []
+        self.step_counter = 0
 
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.config['lr'])
         self.to(self.device)
 
-    def select_action(self, state):
+    def _select_action(self, state):
         state = torch.from_numpy(state).float().to(self.device)
         
         state_value = self.value_layer(state)
@@ -51,8 +54,27 @@ class ActorCritic(nn.Module):
         grid_action = self.ac.act(action)
         return action, grid_action
     
-    def calculateLoss(self, gamma=0.99):
+    def select_action(self, state):
+        state = torch.from_numpy(state).float().to(self.device)
+        state_value = self.value_layer(state)
+        action_probs = self.action_layer(state)
+        action_distribution = Categorical(action_probs)
+        action = action_distribution.sample()
+
+        logprob = action_distribution.log_prob(action)
+
+        action = action.item()
+        grid_action = self.ac.act(action)
         
+        return action, grid_action, logprob, state_value
+
+    
+    def calculateLoss(self, gamma=0.99):
+        if not (self.logprobs and self.state_values and self.rewards):
+            logger.error("Warning: Empty memory buffers!")
+            return torch.tensor(0.0, device=self.device)
+        
+
         # calculating discounted rewards:
         rewards = []
         dis_reward = 0
@@ -61,14 +83,15 @@ class ActorCritic(nn.Module):
             rewards.insert(0, dis_reward)
                 
         # normalizing the rewards:
-        rewards = torch.tensor(rewards)
-        rewards = (rewards - rewards.mean()) / (rewards.std())
+       
+        rewards = torch.tensor(rewards).to(self.device)
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
         
         loss = 0
         for logprob, value, reward in zip(self.logprobs, self.state_values, rewards):
             advantage = reward  - value.item()
             action_loss = -logprob * advantage
-            value_loss = F.smooth_l1_loss(value, reward)
+            value_loss = F.smooth_l1_loss(value, reward.unsqueeze(0))
             loss += (action_loss + value_loss)   
         return loss
     
@@ -78,14 +101,14 @@ class ActorCritic(nn.Module):
         del self.rewards[:]
 
     
-    def save_model(self, checkpoint, filename="actor_critic.pt"):
+    def save(self, checkpoint, filename="actor_critic.pt"):
         os.makedirs(checkpoint, exist_ok=True)
         logger.info(f"model save folder created")
         model_path = os.path.join(checkpoint, filename)
         torch.save(self.state_dict(), model_path)
         print(f"[INFO] Model saved to {model_path}")
 
-    def load_model(self, checkpoint, filename="actor_critic.pt"):
+    def load(self, checkpoint, filename="actor_critic.pt"):
         model_path = os.path.join(checkpoint, filename)
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"[ERROR] Model file not found: {model_path}")
